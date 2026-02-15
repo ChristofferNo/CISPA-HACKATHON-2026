@@ -1,0 +1,42 @@
+# ----------------------
+# Python-generated files
+# ----------------------
+__pycache__/
+*.py[oc]
+*.pyc
+
+build/
+dist/
+wheels/
+*.egg-info/
+
+.ipynb_checkpoints/
+
+# ----------------------
+# Caches & logs
+# ----------------------
+.cache/
+logs/
+output/
+
+# ----------------------
+# Data & artifacts
+# ----------------------
+data/
+*.npz
+*.npy
+*.pt
+*.pth
+*.zip
+
+# ----------------------
+# Virtual environments
+# ----------------------
+.venv/
+venv/
+env/
+
+# ----------------------
+# Images
+# ----------------------
+*.png
