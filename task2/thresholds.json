@@ -1,0 +1,11 @@
+{
+  "label_mode": "fixed",
+  "label_ids": [
+    0
+  ],
+  "tau_best": 5.172222042083741,
+  "tau_margin": 0.01558100700378418,
+  "bs": 2,
+  "seed": 0,
+  "k": 10
+}

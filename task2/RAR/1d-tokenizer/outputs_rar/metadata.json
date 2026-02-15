@@ -1,0 +1,8 @@
+{
+  "rar_checkpoint": "rar_b.bin",
+  "model_size": "rar_b",
+  "cfg_scale": 4.0,
+  "guidance_scale_pow": 0.0,
+  "randomize_temperature": 1.0,
+  "seed": 0
+}
