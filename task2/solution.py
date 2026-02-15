@@ -16,6 +16,7 @@ Models:
 - RAR (Randomized AutoRegressive): 4 sizes [B, L, XL, XXL]
 """
 
+import torch.distributed as dist
 import csv
 import zipfile
 import requests
@@ -101,7 +102,6 @@ if FORCE_REEXTRACT:
         cache_file.unlink()
 
 # Initialize torch.distributed (required by VAR models)
-import torch.distributed as dist
 if not dist.is_initialized():
     try:
         dist.init_process_group(
@@ -124,15 +124,16 @@ def safe_import(root: Path, module: str, name: str):
     root = root.resolve()
     if not root.exists():
         raise FileNotFoundError(f"Missing {name} directory: {root}")
-    
+
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
-    
+
     try:
         return importlib.import_module(module)
     except Exception as e:
         tb = traceback.format_exc()
-        raise ImportError(f"Failed importing '{module}' from '{root}'.\n{tb}") from e
+        raise ImportError(
+            f"Failed importing '{module}' from '{root}'.\n{tb}") from e
 
 
 def handle_error(err: Exception, context: str):
@@ -158,13 +159,15 @@ transform = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-train_dataset = datasets.ImageFolder(root=DATASET_DIR / "train", transform=transform)
-val_dataset = datasets.ImageFolder(root=DATASET_DIR / "val", transform=transform)
+train_dataset = datasets.ImageFolder(
+    root=DATASET_DIR / "train", transform=transform)
+val_dataset = datasets.ImageFolder(
+    root=DATASET_DIR / "val", transform=transform)
 
 
 class TestDataset(Dataset):
     """Dataset for unlabeled test images."""
-    
+
     def __init__(self, root, transform=None):
         self.root = Path(root)
         self.files = sorted(list(self.root.glob("*.*")))
@@ -183,7 +186,7 @@ class TestDataset(Dataset):
 
 test_dataset = TestDataset(DATASET_DIR / "test", transform=transform)
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE_TRAIN, 
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE_TRAIN,
                           shuffle=False, num_workers=NUM_WORKERS)
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE_TRAIN,
                         shuffle=False, num_workers=NUM_WORKERS)
@@ -216,10 +219,10 @@ def load_var_vae(depth: int):
     state_dict = torch.load(vae_ckpt, map_location=device)
     vae.load_state_dict(state_dict, strict=True)
     vae.eval()
-    
+
     for p in vae.parameters():
         p.requires_grad_(False)
-    
+
     return vae
 
 
@@ -227,11 +230,11 @@ def load_var_vae(depth: int):
 def compute_var_features(vae, images: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """
     Compute VAR provenance features.
-    
+
     Features:
         - QuantLoss: ||f - Q(f)||^2 (quantization error)
         - ReconLoss: Calibrated reconstruction error
-    
+
     Returns:
         [batch_size, 2] tensor
     """
@@ -249,14 +252,16 @@ def compute_var_features(vae, images: torch.Tensor, eps: float = 1e-8) -> torch.
 
         # First reconstruction
         recon1 = vae.decoder(f_q)
-        enc_loss1 = F.mse_loss(recon1, x_norm, reduction="none").mean(dim=[1, 2, 3])
+        enc_loss1 = F.mse_loss(
+            recon1, x_norm, reduction="none").mean(dim=[1, 2, 3])
 
         # Second reconstruction (for calibration)
         f2 = vae.encoder(recon1)
         q2 = vae.quantize(f2)
         f2_q = q2[0] if isinstance(q2, tuple) else q2
         recon2 = vae.decoder(f2_q)
-        enc_loss2 = F.mse_loss(recon2, recon1, reduction="none").mean(dim=[1, 2, 3])
+        enc_loss2 = F.mse_loss(
+            recon2, recon1, reduction="none").mean(dim=[1, 2, 3])
 
         # Calibrated reconstruction loss
         enc_loss_cal = enc_loss1 / (enc_loss2 + eps)
@@ -267,10 +272,10 @@ def compute_var_features(vae, images: torch.Tensor, eps: float = 1e-8) -> torch.
 def extract_var_features(images: torch.Tensor) -> list[torch.Tensor]:
     """Extract VAR features for all depth configurations."""
     features = []
-    
+
     for depth in [16, 20, 24, 30]:
         print(f"  Processing VAR-{depth}...")
-        
+
         try:
             vae = load_var_vae(depth).to(device)
         except Exception as e:
@@ -281,20 +286,22 @@ def extract_var_features(images: torch.Tensor) -> list[torch.Tensor]:
 
         batch_features = []
         for i in tqdm(range(0, images.shape[0], BATCH_SIZE_INFERENCE),
-                     desc=f"    Extracting", leave=False):
+                      desc=f"    Extracting", leave=False):
             batch = images[i:i + BATCH_SIZE_INFERENCE]
             batch_features.append(compute_var_features(vae, batch))
-        
+
         feats = torch.cat(batch_features, dim=0)
-        print(f"    QuantLoss: μ={feats[:, 0].mean():.6f} σ={feats[:, 0].std():.6f}")
-        print(f"    ReconLoss: μ={feats[:, 1].mean():.6f} σ={feats[:, 1].std():.6f}")
-        
+        print(
+            f"    QuantLoss: μ={feats[:, 0].mean():.6f} σ={feats[:, 0].std():.6f}")
+        print(
+            f"    ReconLoss: μ={feats[:, 1].mean():.6f} σ={feats[:, 1].std():.6f}")
+
         features.append(feats)
-        
+
         del vae
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-    
+
     return features
 
 
@@ -313,7 +320,7 @@ RAR_CKPTS = {
 }
 
 RAR_ARCH = {
-    "rar_b": dict(hidden_size=768, num_hidden_layers=24, 
+    "rar_b": dict(hidden_size=768, num_hidden_layers=24,
                   num_attention_heads=16, intermediate_size=3072),
     "rar_l": dict(hidden_size=1024, num_hidden_layers=24,
                   num_attention_heads=16, intermediate_size=4096),
@@ -331,10 +338,10 @@ _train_utils = None
 def load_rar_modules():
     """Load RAR modules (lazy loading)."""
     global _rar_modules_loaded, _demo_util, _train_utils
-    
+
     if _rar_modules_loaded:
         return
-    
+
     _demo_util = safe_import(RAR_ROOT, "demo_util", "RAR")
     _train_utils = safe_import(RAR_ROOT, "utils.train_utils", "RAR")
     _rar_modules_loaded = True
@@ -366,7 +373,7 @@ def load_rar_model(size_key: str):
 
     tokenizer.eval()
     generator.eval()
-    
+
     for p in tokenizer.parameters():
         p.requires_grad_(False)
     for p in generator.parameters():
@@ -383,28 +390,29 @@ _resnet18 = None
 def get_candidate_labels(images: torch.Tensor, k: int = 3) -> torch.Tensor:
     """Get top-k ImageNet label candidates using ResNet18."""
     global _resnet18
-    
+
     try:
         import torchvision.models as tvm
-        
+
         if _resnet18 is None:
             weights = tvm.ResNet18_Weights.IMAGENET1K_V1
             _resnet18 = tvm.resnet18(weights=weights).to(device).eval()
             _resnet18._weights = weights
-        
+
         weights = _resnet18._weights
         x = images.to(device)
         x = F.interpolate(x, size=224, mode="bilinear", align_corners=False)
         x = weights.transforms()(x)
         logits = _resnet18(x)
-        
+
         return torch.topk(logits, k=k, dim=1).indices
-        
+
     except Exception as e:
         print(f"[WARNING] Label proposal failed: {e}")
         # Fallback to fixed labels
         B = images.shape[0]
-        fixed = torch.tensor([0, 1, 2, 3, 4], device=device, dtype=torch.long)[:k]
+        fixed = torch.tensor(
+            [0, 1, 2, 3, 4], device=device, dtype=torch.long)[:k]
         return fixed.unsqueeze(0).repeat(B, 1)
 
 
@@ -413,22 +421,22 @@ def compute_rar_features(tokenizer, generator, images: torch.Tensor,
                          k_labels: int = 3) -> torch.Tensor:
     """
     Compute RAR provenance features with label marginalization.
-    
+
     Features:
         - NLL: Negative log-likelihood (marginalized over labels)
         - Prob: exp(-NLL) as confidence proxy
-    
+
     Returns:
         [batch_size, 2] tensor
     """
     x = images.to(device)
-    
+
     with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
         tokens = tokenizer.encode(x)
 
     # Get candidate labels
     candidates = get_candidate_labels(images, k=k_labels)  # [B, k]
-    
+
     logp_list = []
     for j in range(candidates.shape[1]):
         labels = candidates[:, j]
@@ -443,14 +451,15 @@ def compute_rar_features(tokenizer, generator, images: torch.Tensor,
         # Compute token log probabilities
         log_probs = F.log_softmax(logits, dim=-1)
         token_logp = log_probs.gather(-1, tokens_tf.unsqueeze(-1)).squeeze(-1)
-        
+
         # Sum over sequence
         logp = token_logp.sum(dim=1)
         logp_list.append(logp)
 
     # Marginalize over labels (log-mean-exp)
     logp_stack = torch.stack(logp_list, dim=1)  # [B, k]
-    logp_marg = torch.logsumexp(logp_stack, dim=1) - np.log(candidates.shape[1])
+    logp_marg = torch.logsumexp(logp_stack, dim=1) - \
+        np.log(candidates.shape[1])
 
     # Compute features
     seq_len = tokens_tf.shape[1]
@@ -463,10 +472,10 @@ def compute_rar_features(tokenizer, generator, images: torch.Tensor,
 def extract_rar_features(images: torch.Tensor) -> list[torch.Tensor]:
     """Extract RAR features for all size configurations."""
     features = []
-    
+
     for size_key in ["rarb", "rarl", "rarxl", "rarxxl"]:
         print(f"  Processing RAR-{size_key.upper()}...")
-        
+
         try:
             tokenizer, generator = load_rar_model(size_key)
         except Exception as e:
@@ -477,22 +486,24 @@ def extract_rar_features(images: torch.Tensor) -> list[torch.Tensor]:
 
         batch_features = []
         for i in tqdm(range(0, images.shape[0], BATCH_SIZE_INFERENCE),
-                     desc=f"    Extracting", leave=False):
+                      desc=f"    Extracting", leave=False):
             batch = images[i:i + BATCH_SIZE_INFERENCE]
             batch_features.append(
-                compute_rar_features(tokenizer, generator, batch, k_labels=RAR_TOPK_LABELS)
+                compute_rar_features(tokenizer, generator,
+                                     batch, k_labels=RAR_TOPK_LABELS)
             )
-        
+
         feats = torch.cat(batch_features, dim=0)
         print(f"    NLL: μ={feats[:, 0].mean():.6f} σ={feats[:, 0].std():.6f}")
-        print(f"    Prob: μ={feats[:, 1].mean():.6f} σ={feats[:, 1].std():.6f}")
-        
+        print(
+            f"    Prob: μ={feats[:, 1].mean():.6f} σ={feats[:, 1].std():.6f}")
+
         features.append(feats)
-        
+
         del tokenizer, generator
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-    
+
     return features
 
 
@@ -503,7 +514,7 @@ def extract_rar_features(images: torch.Tensor) -> list[torch.Tensor]:
 def extract_all_features(loader, split_name: str, is_test: bool = False):
     """Extract and cache provenance features for a dataset split."""
     cache_file = CACHE_DIR / f"{split_name}_features.pkl"
-    
+
     if cache_file.exists() and not FORCE_REEXTRACT:
         print(f"Loading cached features: {split_name}")
         with open(cache_file, "rb") as f:
@@ -541,14 +552,16 @@ def extract_all_features(loader, split_name: str, is_test: bool = False):
         feature_blocks.extend(extract_var_features(all_images))
     else:
         print("\nSkipping VAR features")
-        feature_blocks.extend([torch.zeros(all_images.shape[0], 2) for _ in range(4)])
+        feature_blocks.extend(
+            [torch.zeros(all_images.shape[0], 2) for _ in range(4)])
 
     if USE_RAR_MODELS:
         print("\nExtracting RAR features...")
         feature_blocks.extend(extract_rar_features(all_images))
     else:
         print("\nSkipping RAR features")
-        feature_blocks.extend([torch.zeros(all_images.shape[0], 2) for _ in range(4)])
+        feature_blocks.extend(
+            [torch.zeros(all_images.shape[0], 2) for _ in range(4)])
 
     # Concatenate all features
     all_features = torch.cat(feature_blocks, dim=1)
@@ -557,7 +570,8 @@ def extract_all_features(loader, split_name: str, is_test: bool = False):
     print("FEATURE EXTRACTION COMPLETE")
     print(f"{'='*60}")
     print(f"Feature dimension: {all_features.shape[1]}")
-    print(f"Statistics: μ={all_features.mean():.6f} σ={all_features.std():.6f}")
+    print(
+        f"Statistics: μ={all_features.mean():.6f} σ={all_features.std():.6f}")
 
     # Sanity checks
     if torch.isnan(all_features).any() or torch.isinf(all_features).any():
@@ -573,7 +587,7 @@ def extract_all_features(loader, split_name: str, is_test: bool = False):
 
     with open(cache_file, "wb") as f:
         pickle.dump(result, f)
-    
+
     print(f"Cached to: {cache_file}\n")
     return result
 
@@ -645,7 +659,8 @@ print(f"  Train accuracy: {train_acc:.4f}")
 print(f"  Val accuracy: {val_acc:.4f}")
 
 print("\nValidation Report:")
-print(classification_report(y_val, val_preds, target_names=LABELS, zero_division=0))
+print(classification_report(y_val, val_preds,
+      target_names=LABELS, zero_division=0))
 
 print("\n" + "="*60)
 print("STEP 3: OUTLIER DETECTION")
@@ -662,9 +677,11 @@ outlier_probs = max_probs[is_outlier] if np.any(is_outlier) else np.array([])
 normal_probs = max_probs[~is_outlier] if np.any(~is_outlier) else np.array([])
 
 if outlier_probs.size > 0:
-    print(f"Outlier confidence: μ={outlier_probs.mean():.4f} σ={outlier_probs.std():.4f}")
+    print(
+        f"Outlier confidence: μ={outlier_probs.mean():.4f} σ={outlier_probs.std():.4f}")
 if normal_probs.size > 0:
-    print(f"Normal confidence: μ={normal_probs.mean():.4f} σ={normal_probs.std():.4f}")
+    print(
+        f"Normal confidence: μ={normal_probs.mean():.4f} σ={normal_probs.std():.4f}")
 
 # Set threshold
 if USE_ADAPTIVE_THRESHOLD and outlier_probs.size > 0:
@@ -698,7 +715,8 @@ with open(SUBMISSION_FILE, "w", newline="", encoding="utf-8") as f:
 
 print(f"\nSaved: {SUBMISSION_FILE}")
 print(f"Total predictions: {len(submission_data)}")
-print(f"Outliers: {outlier_mask.sum()} ({100*outlier_mask.sum()/len(submission_data):.1f}%)")
+print(
+    f"Outliers: {outlier_mask.sum()} ({100*outlier_mask.sum()/len(submission_data):.1f}%)")
 
 # Show distribution
 label_counts = Counter([row[1] for row in submission_data])
@@ -713,7 +731,7 @@ if API_KEY and API_KEY not in ["YOUR_API_KEY_HERE", "IWILL_TYPE"]:
     print("\n" + "="*60)
     print("SUBMITTING TO LEADERBOARD")
     print("="*60)
-    
+
     try:
         response = requests.post(
             f"{SERVER_URL}/submit/{TASK_ID}",
