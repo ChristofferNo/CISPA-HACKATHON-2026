@@ -13,7 +13,7 @@
 
 **The Challenge**: The paper mentions chimera "pockets" are extremely rare (1-10,000 ULP wide) and finding them is like searching for needles in a haystack.
 
-![Chimera Concept](Images/task3/chimera.png)
+![Chimera Concept](task3/images/chimera.png)
 *Figure: Conflicting predictions on different backends due to numerical instabilities*
 
 ---
@@ -197,3 +197,4 @@ If continuing this work, I would try:
 ---
 
 **TL;DR**: Generated chimera images by optimizing to decision boundaries (where top-2 classes are equally likely), then densely sampling around those boundaries with multiple noise scales. Successfully found chimeras with ~0.5% rate, demonstrating that numerical instabilities in neural networks are a real, measurable phenomenon.
+
