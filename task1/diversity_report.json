@@ -1,0 +1,25 @@
+{
+  "threshold": 0.002,
+  "num_duplicate_pairs": 0,
+  "duplicate_pairs": [],
+  "candidates_to_replace": [],
+  "suggestions": [],
+  "score_stats": {
+    "min": 0.464407891788237,
+    "max": 0.9942458924474424,
+    "mean": 0.8854440982367519,
+    "median": 0.8716258116519101
+  },
+  "class_distribution": {
+    "1": 10,
+    "0": 13,
+    "3": 11,
+    "6": 7,
+    "5": 14,
+    "2": 6,
+    "7": 8,
+    "4": 11,
+    "8": 11,
+    "9": 9
+  }
+}

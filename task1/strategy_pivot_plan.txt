@@ -1,0 +1,144 @@
+Strategy Pivot Plan: Cluster-First Pipeline
+=============================================
+
+FINDING:
+  Clustering-based submission (k-means centroids) achieved a HIGHER
+  leaderboard score than our optimized candidates. This means:
+  - The logits-based composite score does NOT correlate well with MSE
+  - Optimization is overfitting to classifier confidence, drifting from
+    images that actually minimize MSE to training data
+  - K-means centroids are better because they minimize average squared
+    distance to all images in their cluster — which is exactly MSE
+
+ROOT CAUSE:
+  The evaluation metric is MSE to the nearest training image. Our
+  optimization maximized classifier confidence (logit-based composite
+  score), which pushes images toward decision boundaries rather than
+  toward the pixel-space centers of training data clusters.
+
+NEW PIPELINE: aux images → clustering → merge with progress → light optimization → submission
+=================================================================================================
+
+Phase A: Per-Class Clustering (no API needed)
+---------------------------------------------
+  1. Load all 1000 auxiliary images
+  2. For each class (0-9):
+     - Run k-means with k=10 centroids (100 total)
+     - Also compute k=5 and k=15 variants for flexibility
+  3. For each centroid, find its nearest actual auxiliary image
+     (centroids are blurry averages; nearest-neighbor may score better)
+  4. Output: centroid pool (100 centroids) + nearest-neighbor pool (100 images)
+
+Phase B: Merge with Optimization Progress
+------------------------------------------
+  1. Load current optimized candidates from optimize_candidates.npz
+  2. For each optimized candidate:
+     - Compute MSE to all centroids in same class
+     - If MSE to nearest centroid is LOW → the optimized image is near a
+       cluster center and is a good representative (KEEP)
+     - If MSE to nearest centroid is HIGH → the image drifted far from
+       any natural cluster and is likely overfitted to logits (REPLACE)
+  3. Scoring rule for inclusion:
+     - Compute intra-class MSE rank for each candidate
+     - Keep optimized images that rank in top 50% (close to cluster centers)
+     - Replace bottom 50% with centroids or nearest-neighbor images
+  4. Final selection: pick best 100 from merged pool (10 per class)
+     - Priority: centroid-adjacent optimized images > raw centroids > nearest-neighbor aux images
+
+Phase C: Light Optimization (optional, few API calls)
+------------------------------------------------------
+  1. Only optimize candidates with LOW confidence (class 8, 9, weak ones)
+  2. Use SMALL perturbations only (noise_std=0.01, no block swaps)
+  3. Max 5-10 iterations (not 50+)
+  4. Accept improvements only if MSE to original centroid stays below threshold
+     (prevents drift)
+  5. Skip optimization entirely for candidates already scoring well
+
+Phase D: Submission
+-------------------
+  1. Assemble final 100 images (10 per class)
+  2. Validate shape (100, 3, 32, 32), dtype float32, range [0,1]
+  3. Submit
+
+KEY DIFFERENCES FROM CURRENT PIPELINE:
+  - Clustering is PRIMARY, not supplementary
+  - Optimization is LIGHT (few iters, small noise), not heavy (50+ iters)
+  - Scoring uses MSE-proximity to centroids, not logits confidence
+  - Drift prevention: reject perturbations that move too far from centroid
+  - No simulated annealing needed (we're refining, not exploring)
+
+
+NEXT STEPS: Safe Transition
+============================
+
+Step 1: Wait for current optimization run to finish
+  - The Phase 4 optimizer (solve.py --phase 4) is still running
+  - Let it complete naturally (it will auto-submit best results)
+  - Do NOT kill it — the auto-submitted result is our safety net
+
+Step 2: Back up optimization state
+  After the run finishes, back up all state files:
+    cp optimize_candidates.npz optimize_candidates_backup.npz
+    cp optimize_progress.json optimize_progress_backup.json
+    cp optimize_momentum.npy optimize_momentum_backup.npy
+    cp submission.npz submission_optimized_final.npz
+    cp phase4_state.json phase4_state_backup.json
+
+Step 3: Create solve_v2.py (new file, do NOT modify solve.py)
+  - Implement the cluster-first pipeline (Phases A-D above)
+  - Import shared utilities from solve.py (API helpers, submission format)
+    OR copy them to be fully standalone
+  - Keep solve.py intact as fallback
+  - New CLI:
+      python solve_v2.py                    # Full pipeline
+      python solve_v2.py --skip-optimize    # Clustering only (no API calls)
+      python solve_v2.py --submit           # Submit result
+
+Step 4: Test solve_v2.py without submitting
+  - Run with --skip-optimize first to verify clustering + merge logic
+  - Compare MSE statistics of v2 candidates vs current optimized candidates
+  - Only submit if v2 looks better
+
+Step 5: Submit and compare
+  - Submit solve_v2.py output
+  - Compare leaderboard score vs:
+    a) Current optimized submission (score ~0.884)
+    b) Pure clustering submission (cluster_submission_test.npz)
+  - The v2 result should be >= pure clustering (since it merges best of both)
+
+Step 6: Iterate if needed
+  - If v2 improves, run light optimization (Phase C) for a few iterations
+  - If not, try different k values (k=5, k=15, k=20 per class)
+  - Try using medoids instead of centroids (actual images, not averages)
+
+
+IMPLEMENTATION NOTES FOR solve_v2.py:
+======================================
+
+Key functions to implement:
+  1. cluster_per_class(images, labels, k=10)
+     → Returns centroids, assignments, nearest_neighbors per class
+
+  2. find_nearest_aux(centroid, class_images)
+     → Returns the actual auxiliary image closest to the centroid (MSE)
+
+  3. merge_with_optimized(centroids, optimized, labels)
+     → Scores optimized images by MSE-to-centroid proximity
+     → Returns merged pool with best representatives
+
+  4. light_optimize(candidates, labels, max_iters=5, noise_std=0.01)
+     → Small perturbations, drift-bounded optimization
+     → Only targets weak candidates
+
+  5. assemble_submission(merged_pool, n_per_class=10)
+     → Final selection, validation, save
+
+Key function to REUSE from solve.py:
+  - query_logits()       (API helper with rate limiting)
+  - extract_scores()     (logit parsing)
+  - save_submission()    (npz formatting)
+  - submit_solution()    (server submission)
+  - load_auxiliary()     (dataset loading)
+
+Estimated API calls: 1-10 (vs 50+ in current pipeline)
+Estimated wall time: 10-100 min (vs 500+ min)
