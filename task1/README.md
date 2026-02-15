@@ -4,6 +4,16 @@
 
 This task involved reconstructing training images from a CIFAR-10-like dataset using only black-box classifier access. The goal was to generate 100 images (10 per class) that minimize the Mean Squared Error (MSE) to the nearest image in the hidden training dataset.
 
+## Reconstructed Images
+
+Here's a sample of 10 reconstructed images from our final submission:
+
+![Reconstructed Samples](reconstructed_samples.png)
+
+*Sample images showing one representative from each CIFAR-10 class. Note: Images appear somewhat blurry because they are k-means cluster centroids (averages of similar images), which is optimal for minimizing MSE.*
+
+For a complete view, see [all 100 reconstructed images](reconstructed_detailed.png).
+
 ## Challenge Description
 
 ### Constraints
@@ -131,11 +141,17 @@ Our final pipeline combines all insights:
 ### Utility Files
 - **`task_template.py`**: Original competition template with API usage examples
 - **`visualize.py`**: Visualization utilities for exploring the dataset
+- **`visualize_submission.py`**: Generate visualizations of reconstructed images
 - **`infinity.py`** / **`generate_infinity_images.py`**: Helper utilities
 
 ### Data Files
 - **`auxiliary_dataset.pt`**: 1000 labeled images (100 per class)
 - **`strategy_pivot_plan.txt`**: Strategic document outlining the cluster-first pivot
+
+### Visualization Files
+- **`reconstructed_samples.png`**: Sample of 10 reconstructed images (1 per class)
+- **`reconstructed_samples_hires.png`**: High-resolution version of samples
+- **`reconstructed_detailed.png`**: Grid showing all 100 reconstructed images
 
 ### Archived Files
 See `archive_unused/` for intermediate experiments, ablation studies, cached API responses, and intermediate submissions.
