@@ -1,6 +1,6 @@
 ## Part 3: Chimera Generation Challenge
 
-### 🎯 The Challenge in 30 Seconds
+###  The Challenge in 30 Seconds
 
 **Task**: Create images that get **different predictions** on different hardware backends  
 **Why it's hard**: Chimera "pockets" are 1-10,000 ULP wide in a 3,072-dimensional space  
@@ -148,3 +148,4 @@ task3/
 ---
 
 **TL;DR**: Found chimeras by (1) optimizing to decision boundaries, (2) densely sampling with multi-scale noise, (3) replicating most uncertain candidates. Achieved ~0.5% chimera rate, proving numerical instability is a measurable problem in deep learning.
+
